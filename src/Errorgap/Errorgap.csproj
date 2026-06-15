@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <PackageId>Errorgap</PackageId>
+    <Description>Core .NET notifier for Errorgap error tracking.</Description>
+    <PackageTags>errorgap;error-tracking;exceptions;monitoring</PackageTags>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <PackageId>Errorgap.AspNetCore</PackageId>
+    <Description>ASP.NET Core middleware for Errorgap error tracking.</Description>
+    <PackageTags>errorgap;aspnetcore;error-tracking;exceptions</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Errorgap\Errorgap.csproj" />
+  </ItemGroup>
+</Project>

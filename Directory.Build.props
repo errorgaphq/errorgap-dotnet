@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Version>0.1.0</Version>
+    <Authors>Errorgap</Authors>
+    <Company>Errorgap</Company>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://gitlab.jgrubbs.net/jGRUBBS/errorgap-dotnet</RepositoryUrl>
+  </PropertyGroup>
+</Project>
