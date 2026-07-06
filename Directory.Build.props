@@ -8,6 +8,6 @@
     <Authors>Errorgap</Authors>
     <Company>Errorgap</Company>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://gitlab.jgrubbs.net/jGRUBBS/errorgap-dotnet</RepositoryUrl>
+    <RepositoryUrl>https://github.com/errorgaphq/errorgap-dotnet</RepositoryUrl>
   </PropertyGroup>
 </Project>
