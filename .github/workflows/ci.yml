@@ -6,9 +6,17 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dotnet-version: ["8.0.x", "10.0.x"]
     steps:
       - uses: actions/checkout@v4
+      # Keep the package's net8.0 runtime available while the 10.x lane uses
+      # the newer SDK to restore, compile, and execute the same test suite.
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet-version }}
       - run: dotnet test

@@ -2,7 +2,11 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <PackageId>Errorgap</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <Description>Core .NET notifier for Errorgap error tracking.</Description>
     <PackageTags>errorgap;error-tracking;exceptions;monitoring</PackageTags>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" Link="README.md" />
+  </ItemGroup>
 </Project>

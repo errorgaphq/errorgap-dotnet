@@ -41,11 +41,19 @@ public static class Notice
         foreach (var frame in frames)
         {
             var map = new Dictionary<string, object?>();
-            if (frame.File is not null) map["file"] = frame.File;
+            map["file"] = frame.File ?? "unknown.cs";
             if (frame.Line is not null) map["line"] = frame.Line;
             if (frame.Function is not null) map["function"] = frame.Function;
             map["in_app"] = frame.InApp;
             map["index"] = frame.Index;
+            if (frame.Source is not null)
+            {
+                map["source"] = new Dictionary<string, object?>
+                {
+                    ["start_line"] = frame.Source.StartLine,
+                    ["lines"] = frame.Source.Lines,
+                };
+            }
             frameMaps.Add(map);
         }
 

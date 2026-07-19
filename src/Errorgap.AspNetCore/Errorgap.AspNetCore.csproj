@@ -2,11 +2,13 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <PackageId>Errorgap.AspNetCore</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <Description>ASP.NET Core middleware for Errorgap error tracking.</Description>
     <PackageTags>errorgap;aspnetcore;error-tracking;exceptions</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Errorgap\Errorgap.csproj" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="/" Link="README.md" />
   </ItemGroup>
 </Project>

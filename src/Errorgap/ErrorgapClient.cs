@@ -18,7 +18,7 @@ public sealed record DeliveryResult(int? Status, string? Body, Exception? Error,
 public sealed class ErrorgapClient : IAsyncDisposable
 {
     private readonly HttpClient _http;
-    private readonly Channel<IDictionary<string, object?>> _channel;
+    private readonly Channel<Delivery> _channel;
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly Task _worker;
     private int _inFlight;
@@ -30,9 +30,9 @@ public sealed class ErrorgapClient : IAsyncDisposable
     {
         _config = config;
         _http = http;
-        _channel = Channel.CreateBounded<IDictionary<string, object?>>(new BoundedChannelOptions(config.QueueSize)
+        _channel = Channel.CreateBounded<Delivery>(new BoundedChannelOptions(config.QueueSize)
         {
-            FullMode = BoundedChannelFullMode.DropOldest,
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
         });
         _worker = Task.Run(WorkerLoopAsync);
@@ -48,17 +48,55 @@ public sealed class ErrorgapClient : IAsyncDisposable
         {
             _config.Validate();
             var notice = Notice.FromException(exception, _config, options);
+            return Submit(new Delivery(NoticesUrl(), JsonSerializer.Serialize(notice)), sync);
+        }
+        catch (Exception ex)
+        {
+            return new DeliveryResult(null, null, ex, false);
+        }
+    }
 
-            if (sync || !_config.Async)
+    public DeliveryResult NotifyTransaction(ApmTransaction transaction, bool sync = false)
+    {
+        try
+        {
+            _config.Validate();
+            if (!_config.ApmEnabled
+                || _config.ApmSampleRate <= 0
+                || (_config.ApmSampleRate < 1 && Random.Shared.NextDouble() >= _config.ApmSampleRate))
             {
-                return DeliverAsync(notice, _shutdownCts.Token).GetAwaiter().GetResult();
+                return new DeliveryResult(204, null, null, false);
             }
+            return Submit(
+                new Delivery(TransactionsUrl(), JsonSerializer.Serialize(transaction.ToPayload(_config))),
+                sync);
+        }
+        catch (Exception ex)
+        {
+            return new DeliveryResult(null, null, ex, false);
+        }
+    }
 
-            if (!_channel.Writer.TryWrite(notice))
+    public DeliveryResult NotifyLog(
+        string message,
+        string level = "Information",
+        string? source = null,
+        DateTimeOffset? occurredAt = null,
+        bool sync = false)
+    {
+        try
+        {
+            _config.Validate();
+            if (!_config.LogsEnabled) return new DeliveryResult(204, null, null, false);
+            var payload = new Dictionary<string, object?>
             {
-                return new DeliveryResult(null, null, new InvalidOperationException("queue full"), false);
-            }
-            return new DeliveryResult(202, null, null, true);
+                ["message"] = message,
+                ["level"] = level.ToLowerInvariant(),
+                ["source"] = source,
+                ["environment"] = _config.Environment,
+                ["occurred_at"] = (occurredAt ?? DateTimeOffset.UtcNow).ToUniversalTime().ToString("o"),
+            };
+            return Submit(new Delivery(LogsUrl(), JsonSerializer.Serialize(payload)), sync);
         }
         catch (Exception ex)
         {
@@ -98,7 +136,6 @@ public sealed class ErrorgapClient : IAsyncDisposable
             {
                 while (reader.TryRead(out var notice))
                 {
-                    Interlocked.Increment(ref _inFlight);
                     try
                     {
                         await DeliverAsync(notice, _shutdownCts.Token).ConfigureAwait(false);
@@ -113,13 +150,26 @@ public sealed class ErrorgapClient : IAsyncDisposable
         catch (OperationCanceledException) { /* shutdown */ }
     }
 
-    internal async Task<DeliveryResult> DeliverAsync(IDictionary<string, object?> notice, CancellationToken ct)
+    private DeliveryResult Submit(Delivery delivery, bool sync)
     {
-        var url = $"{_config.Endpoint.TrimEnd('/')}/api/projects/{_config.ProjectSlug}/notices";
-        var json = JsonSerializer.Serialize(notice);
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        if (sync || !_config.Async)
         {
-            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            return DeliverAsync(delivery, _shutdownCts.Token).GetAwaiter().GetResult();
+        }
+        Interlocked.Increment(ref _inFlight);
+        if (!_channel.Writer.TryWrite(delivery))
+        {
+            Interlocked.Decrement(ref _inFlight);
+            return new DeliveryResult(null, null, new InvalidOperationException("queue full"), false);
+        }
+        return new DeliveryResult(202, null, null, true);
+    }
+
+    private async Task<DeliveryResult> DeliverAsync(Delivery delivery, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, delivery.Url)
+        {
+            Content = new StringContent(delivery.Body, Encoding.UTF8, "application/json"),
         };
         request.Headers.UserAgent.ParseAdd($"errorgap-dotnet/{Version.Current}");
         if (!string.IsNullOrEmpty(_config.ApiKey))
@@ -131,11 +181,27 @@ public sealed class ErrorgapClient : IAsyncDisposable
         {
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                Log($"delivery failed with HTTP {(int)response.StatusCode}: {body}");
+            }
             return new DeliveryResult((int)response.StatusCode, body, null, false);
         }
         catch (Exception ex)
         {
+            Log($"{ex.GetType().Name}: {ex.Message}");
             return new DeliveryResult(null, null, ex, false);
         }
     }
+
+    private string ProjectUrl(string resource)
+        => $"{_config.Endpoint.TrimEnd('/')}/api/projects/{_config.ProjectSlug}/{resource}";
+
+    private string NoticesUrl() => ProjectUrl("notices");
+    private string TransactionsUrl() => ProjectUrl("transactions");
+    private string LogsUrl() => ProjectUrl("logs");
+
+    private void Log(string message) => _config.DiagnosticLogger?.Invoke($"[errorgap] {message}");
+
+    private sealed record Delivery(string Url, string Body);
 }
