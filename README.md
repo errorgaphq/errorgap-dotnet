@@ -59,6 +59,23 @@ await apm.TrackJobAsync("ReceiptJob", "receipts", () => job.RunAsync());
 
 Set `ApmSampleRate` between `0` and `1` to sample transactions.
 
+### Link errors to their request
+
+`UseErrorgap()` and `ErrorgapApm.TrackJobAsync` give each request or job a
+transaction id. Errors reported while it runs — the middleware's own, or your
+`ErrorgapClient.Notify` calls — carry it as `context.transaction_id`, so
+errorgap shows the error a request actually raised on its trace. The id flows
+across awaits (`AsyncLocal`). For your own instrumentation:
+
+```csharp
+var transaction = new ApmTransaction { Method = "GET", Path = "/orders/{id}" };
+using (TransactionContext.Enter(transaction.Id))
+{
+    await HandleAsync(request);
+}
+client.NotifyTransaction(transaction);
+```
+
 ### Logs
 
 With `LogsEnabled`, the ASP.NET Core package registers an `ILoggerProvider`.

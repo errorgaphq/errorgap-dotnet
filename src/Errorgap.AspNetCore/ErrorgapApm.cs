@@ -73,6 +73,8 @@ public sealed class ErrorgapApm : IDisposable
     {
         var stopwatch = Stopwatch.StartNew();
         Exception? failure = null;
+        var transaction = new ApmTransaction();
+        using var transactionScope = TransactionContext.Enter(transaction.Id);
         using var scope = BeginTransactionScope();
         try
         {
@@ -99,15 +101,13 @@ public sealed class ErrorgapApm : IDisposable
         finally
         {
             stopwatch.Stop();
-            _client.NotifyTransaction(new ApmTransaction
-            {
-                Kind = "job",
-                JobClass = jobClass,
-                Queue = queue ?? "default",
-                StatusCode = failure is null ? 200 : 500,
-                DurationMs = stopwatch.Elapsed.TotalMilliseconds,
-                Spans = scope.Complete(),
-            });
+            transaction.Kind = "job";
+            transaction.JobClass = jobClass;
+            transaction.Queue = queue ?? "default";
+            transaction.StatusCode = failure is null ? 200 : 500;
+            transaction.DurationMs = stopwatch.Elapsed.TotalMilliseconds;
+            transaction.Spans = scope.Complete();
+            _client.NotifyTransaction(transaction);
         }
     }
 
