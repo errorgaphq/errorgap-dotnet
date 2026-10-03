@@ -27,6 +27,9 @@ public sealed class ErrorgapMiddleware
     {
         var stopwatch = Stopwatch.StartNew();
         Exception? failure = null;
+        // Errors reported while the request runs carry its transaction id.
+        var transaction = new ApmTransaction();
+        using var transactionScope = TransactionContext.Enter(transaction.Id);
         using var scope = _apm.BeginTransactionScope();
         try
         {
@@ -65,16 +68,14 @@ public sealed class ErrorgapMiddleware
         finally
         {
             stopwatch.Stop();
-            _client.NotifyTransaction(new ApmTransaction
-            {
-                Kind = "web",
-                Method = context.Request.Method,
-                Path = NormalizedRoute(context),
-                PathRaw = context.Request.Path,
-                StatusCode = failure is null ? context.Response.StatusCode : 500,
-                DurationMs = stopwatch.Elapsed.TotalMilliseconds,
-                Spans = scope.Complete(),
-            });
+            transaction.Kind = "web";
+            transaction.Method = context.Request.Method;
+            transaction.Path = NormalizedRoute(context);
+            transaction.PathRaw = context.Request.Path;
+            transaction.StatusCode = failure is null ? context.Response.StatusCode : 500;
+            transaction.DurationMs = stopwatch.Elapsed.TotalMilliseconds;
+            transaction.Spans = scope.Complete();
+            _client.NotifyTransaction(transaction);
         }
     }
 

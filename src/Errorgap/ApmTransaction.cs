@@ -6,6 +6,8 @@ namespace Errorgap;
 
 public sealed class ApmTransaction
 {
+    /// <summary>Links errors raised during this transaction to it; see <see cref="TransactionContext"/>.</summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Kind { get; set; } = "web";
     public string? Method { get; set; }
     public string? Path { get; set; }
@@ -22,6 +24,7 @@ public sealed class ApmTransaction
     {
         var payload = new Dictionary<string, object?>
         {
+            ["id"] = Id,
             ["kind"] = Kind,
             ["duration_ms"] = DurationMs,
             ["environment"] = Environment ?? configuration.Environment,

@@ -47,13 +47,35 @@ public sealed class ErrorgapClient : IAsyncDisposable
         try
         {
             _config.Validate();
-            var notice = Notice.FromException(exception, _config, options);
+            var notice = Notice.FromException(exception, _config, WithTransaction(options));
             return Submit(new Delivery(NoticesUrl(), JsonSerializer.Serialize(notice)), sync);
         }
         catch (Exception ex)
         {
             return new DeliveryResult(null, null, ex, false);
         }
+    }
+
+    /// <summary>
+    /// The request or job this error was raised in (<see cref="TransactionContext"/>),
+    /// unless the caller set one, so errorgap links the two.
+    /// </summary>
+    private static NoticeOptions? WithTransaction(NoticeOptions? options)
+    {
+        var id = TransactionContext.Current;
+        if (id is null) return options;
+        if (options?.Context is { } existing && existing.ContainsKey("transaction_id")) return options;
+        var context = options?.Context is null
+            ? new Dictionary<string, object?>()
+            : new Dictionary<string, object?>(options.Context);
+        context["transaction_id"] = id;
+        return new NoticeOptions
+        {
+            Context = context,
+            Environment = options?.Environment,
+            Session = options?.Session,
+            Params = options?.Params,
+        };
     }
 
     public DeliveryResult NotifyTransaction(ApmTransaction transaction, bool sync = false)
