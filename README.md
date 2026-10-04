@@ -76,6 +76,14 @@ using (TransactionContext.Enter(transaction.Id))
 client.NotifyTransaction(transaction);
 ```
 
+### Link browser calls to their request
+
+When the errorgap browser SDK is on the page, its API calls send an
+`x-errorgap-trace` header. `UseErrorgap()` records it as the transaction's
+`TraceId` (for your own instrumentation: `ApmTransaction.BrowserTraceId(header)`),
+so errorgap's browser Performance view links each call to the server request
+that answered it.
+
 ### Logs
 
 With `LogsEnabled`, the ASP.NET Core package registers an `ILoggerProvider`.
