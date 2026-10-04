@@ -68,6 +68,7 @@ public sealed class ErrorgapMiddleware
         finally
         {
             stopwatch.Stop();
+            transaction.TraceId = ApmTransaction.BrowserTraceId(context.Request.Headers[ApmTransaction.TraceHeader].ToString());
             transaction.Kind = "web";
             transaction.Method = context.Request.Method;
             transaction.Path = NormalizedRoute(context);

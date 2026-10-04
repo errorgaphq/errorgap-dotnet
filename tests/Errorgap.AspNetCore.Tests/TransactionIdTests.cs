@@ -66,4 +66,46 @@ public class TransactionIdTests
         }
         Assert.Null(TransactionContext.Current);
     }
+
+    [Fact]
+    public async Task ARequestRecordsTheBrowserTraceHeader()
+    {
+        using var ing = new FakeIngestor();
+        using var host = await new HostBuilder()
+            .ConfigureWebHost(web =>
+            {
+                web.UseTestServer();
+                web.ConfigureServices(svc => svc.AddErrorgap(cfg =>
+                {
+                    cfg.Endpoint = ing.Endpoint;
+                    cfg.ProjectSlug = "demo";
+                    cfg.ApiKey = "egp_test";
+                    cfg.Async = false;
+                    cfg.ApmEnabled = true;
+                    cfg.ApmSampleRate = 1.0;
+                }));
+                web.Configure(app =>
+                {
+                    app.UseErrorgap();
+                    app.Run(ctx => Task.CompletedTask);
+                });
+            })
+            .StartAsync();
+
+        var client = host.GetTestClient();
+        foreach (var header in new[] { "0192F3C4-7A1B-4C2D-9E3F-0123456789AB", "not-a-uuid" })
+        {
+            var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, "/orders/7");
+            request.Headers.Add("x-errorgap-trace", header);
+            await client.SendAsync(request);
+        }
+
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (ing.Requests.Count < 2 && DateTime.UtcNow < deadline) await Task.Delay(50);
+
+        var traces = ing.Requests.Where(r => r.Path!.EndsWith("/transactions"))
+            .Select(r => r.Body!.TryGetValue("trace_id", out var v) ? ((JsonElement)v!).GetString() : null)
+            .ToList();
+        Assert.Equal(new[] { "0192f3c4-7a1b-4c2d-9e3f-0123456789ab", null }, traces);
+    }
 }
