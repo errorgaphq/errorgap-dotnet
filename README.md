@@ -120,6 +120,23 @@ await ErrorgapSdk.ShutdownAsync();
 `Init` installs `AppDomain.UnhandledException` and
 `TaskScheduler.UnobservedTaskException` hooks by default.
 
+## Filtering, hooks and delivery
+
+```csharp
+var config = new ErrorgapConfiguration
+{
+    ProjectSlug = "my-app",
+    IgnoreEnvironments = new[] { "Testing" },
+    // return null to drop the notice, or return it changed
+    BeforeNotify = notice => notice,
+};
+```
+
+`FilterKeys` are masked at any depth in `Params` and `Session`, inside lists
+too, and oversized values are cut. A send that fails on the network or with a
+5xx is retried up to three times; after a 429 the client stops sending for the
+server's `Retry-After` (`client.Paused`).
+
 ## Configuration reference
 
 | Property | Default | Notes |

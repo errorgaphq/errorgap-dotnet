@@ -55,6 +55,26 @@ public sealed class ErrorgapConfiguration
 
     public System.Action<string>? DiagnosticLogger { get; set; }
 
+    /// <summary>Environments in which nothing is sent. Defaults to ERRORGAP_IGNORE_ENVIRONMENTS.</summary>
+    public IReadOnlyList<string> IgnoreEnvironments { get; set; } =
+        (System.Environment.GetEnvironmentVariable("ERRORGAP_IGNORE_ENVIRONMENTS") ?? "")
+            .Split(',', System.StringSplitOptions.RemoveEmptyEntries | System.StringSplitOptions.TrimEntries);
+
+    /// <summary>
+    /// Sees each notice before it is sent and returns the notice to send,
+    /// changed or not, or <c>null</c> to drop it.
+    /// </summary>
+    public System.Func<IDictionary<string, object?>, IDictionary<string, object?>?>? BeforeNotify { get; set; }
+
+    public bool IgnoredEnvironment()
+    {
+        foreach (var name in IgnoreEnvironments)
+        {
+            if (name == Environment) return true;
+        }
+        return false;
+    }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(ProjectSlug))
