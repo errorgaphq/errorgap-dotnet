@@ -53,13 +53,19 @@ public sealed class FakeIngestor : IDisposable
             // Settings (404 when unset) and not recorded.
             if (ctx.Request.HttpMethod == "GET")
             {
-                var settings = Settings;
-                ctx.Response.StatusCode = settings is null ? 404 : 200;
-                if (settings is not null)
+                // A client that was disposed mid-read drops the connection:
+                // that must not end this loop for the requests that follow.
+                try
                 {
-                    await ctx.Response.OutputStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(settings));
+                    var settings = Settings;
+                    ctx.Response.StatusCode = settings is null ? 404 : 200;
+                    if (settings is not null)
+                    {
+                        await ctx.Response.OutputStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(settings));
+                    }
+                    ctx.Response.Close();
                 }
-                ctx.Response.Close();
+                catch (Exception) { /* the client went away */ }
                 continue;
             }
 
