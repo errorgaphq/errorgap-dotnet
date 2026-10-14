@@ -16,6 +16,8 @@ jobs:
       - run: dotnet test
       - run: dotnet pack src/Errorgap/Errorgap.csproj -c Release -o out
       - run: dotnet pack src/Errorgap.AspNetCore/Errorgap.AspNetCore.csproj -c Release -o out
+      - run: dotnet pack src/Errorgap.Serilog/Errorgap.Serilog.csproj -c Release -o out
+      - run: dotnet pack src/Errorgap.NLog/Errorgap.NLog.csproj -c Release -o out
       # Exchange the GitHub OIDC token for a short-lived NuGet API key
       # (trusted-publishing policy "errorgap-ci" on the errorgap account).
       - uses: NuGet/login@v1
