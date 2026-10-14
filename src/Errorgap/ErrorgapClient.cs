@@ -46,6 +46,10 @@ public sealed class ErrorgapClient : IAsyncDisposable
 
     public ErrorgapConfiguration Config => _config;
 
+    /// <summary>What errorgap wants this app to send (the project's remote settings).</summary>
+    public RemoteSettings Remote => _remote ??= new RemoteSettings(() => _config, _http, _shutdownCts.Token);
+    private RemoteSettings? _remote;
+
     public void Configure(ErrorgapConfiguration config) => _config = config;
 
     public DeliveryResult Notify(Exception exception, NoticeOptions? options = null, bool sync = false)
@@ -56,6 +60,10 @@ public sealed class ErrorgapClient : IAsyncDisposable
             if (_config.IgnoredEnvironment())
             {
                 return new DeliveryResult(202, "ignored environment", null, false);
+            }
+            if (!Remote.Enabled(RemoteKind.Errors))
+            {
+                return new DeliveryResult(202, "errors are switched off for this project", null, false);
             }
             var notice = Notice.FromException(exception, _config, WithTransaction(options));
             // A hook that throws is logged and skipped: a bug in a filter
@@ -112,6 +120,7 @@ public sealed class ErrorgapClient : IAsyncDisposable
         {
             _config.Validate();
             if (!_config.ApmEnabled
+                || !Remote.Enabled(RemoteKind.Apm)
                 || _config.ApmSampleRate <= 0
                 || (_config.ApmSampleRate < 1 && Random.Shared.NextDouble() >= _config.ApmSampleRate))
             {
@@ -137,7 +146,7 @@ public sealed class ErrorgapClient : IAsyncDisposable
         try
         {
             _config.Validate();
-            if (!_config.LogsEnabled) return new DeliveryResult(204, null, null, false);
+            if (!_config.LogsEnabled || !Remote.Enabled(RemoteKind.Logs)) return new DeliveryResult(204, null, null, false);
             var payload = new Dictionary<string, object?>
             {
                 ["message"] = message,

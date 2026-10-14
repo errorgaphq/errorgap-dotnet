@@ -55,6 +55,17 @@ public sealed class ErrorgapConfiguration
 
     public System.Action<string>? DiagnosticLogger { get; set; }
 
+    /// <summary>
+    /// Follow the project's settings in errorgap (Project settings › What SDKs
+    /// send): stop sending what is switched off there. On by default;
+    /// ERRORGAP_REMOTE_SETTINGS=false turns it off.
+    /// </summary>
+    public bool RemoteSettings { get; set; } =
+        !string.Equals(
+            System.Environment.GetEnvironmentVariable("ERRORGAP_REMOTE_SETTINGS")?.Trim(),
+            "false",
+            System.StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Environments in which nothing is sent. Defaults to ERRORGAP_IGNORE_ENVIRONMENTS.</summary>
     public IReadOnlyList<string> IgnoreEnvironments { get; set; } =
         (System.Environment.GetEnvironmentVariable("ERRORGAP_IGNORE_ENVIRONMENTS") ?? "")

@@ -120,6 +120,15 @@ await ErrorgapSdk.ShutdownAsync();
 `Init` installs `AppDomain.UnhandledException` and
 `TaskScheduler.UnobservedTaskException` hooks by default.
 
+## Remote settings
+
+Errors, performance data and logs can each be switched off for a project in
+errorgap (Project settings › What SDKs send). Running apps follow within ten
+minutes, with no deploy: the client re-reads `GET /api/projects/:slug/config`
+in the background. If errorgap cannot be reached, everything stays on.
+`RemoteSettings = false` (or `ERRORGAP_REMOTE_SETTINGS=false`) ignores the
+project's switches.
+
 ## Filtering, hooks and delivery
 
 ```csharp
