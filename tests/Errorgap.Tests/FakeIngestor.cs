@@ -36,6 +36,9 @@ public sealed class FakeIngestor : IDisposable
     }
 
     public string Endpoint { get; }
+
+    /// <summary>The JSON served to the SDK's settings poll; null answers 404.</summary>
+    public volatile string? Settings;
     public IReadOnlyCollection<CapturedRequest> Requests => _requests.ToArray();
 
     private async Task LoopAsync()
@@ -45,6 +48,20 @@ public sealed class FakeIngestor : IDisposable
             HttpListenerContext? ctx = null;
             try { ctx = await _listener.GetContextAsync(); }
             catch { return; }
+
+            // The SDK's settings poll is not an ingest request: answered from
+            // Settings (404 when unset) and not recorded.
+            if (ctx.Request.HttpMethod == "GET")
+            {
+                var settings = Settings;
+                ctx.Response.StatusCode = settings is null ? 404 : 200;
+                if (settings is not null)
+                {
+                    await ctx.Response.OutputStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(settings));
+                }
+                ctx.Response.Close();
+                continue;
+            }
 
             using var reader = new StreamReader(ctx.Request.InputStream);
             var raw = await reader.ReadToEndAsync();

@@ -15,6 +15,12 @@ public sealed record DeliveryResult(int? Status, string? Body, Exception? Error,
     public bool Success => Error is null && Status is >= 200 and < 300;
 }
 
+/// <summary>Not sent: the server asked for a pause (Retry-After) that has not passed yet.</summary>
+public sealed class RateLimitedException : Exception
+{
+    public RateLimitedException() : base("rate limited by the server, not sent") { }
+}
+
 public sealed class ErrorgapClient : IAsyncDisposable
 {
     private readonly HttpClient _http;
@@ -40,6 +46,10 @@ public sealed class ErrorgapClient : IAsyncDisposable
 
     public ErrorgapConfiguration Config => _config;
 
+    /// <summary>What errorgap wants this app to send (the project's remote settings).</summary>
+    public RemoteSettings Remote => _remote ??= new RemoteSettings(() => _config, _http, _shutdownCts.Token);
+    private RemoteSettings? _remote;
+
     public void Configure(ErrorgapConfiguration config) => _config = config;
 
     public DeliveryResult Notify(Exception exception, NoticeOptions? options = null, bool sync = false)
@@ -47,7 +57,33 @@ public sealed class ErrorgapClient : IAsyncDisposable
         try
         {
             _config.Validate();
+            if (_config.IgnoredEnvironment())
+            {
+                return new DeliveryResult(202, "ignored environment", null, false);
+            }
+            if (!Remote.Enabled(RemoteKind.Errors))
+            {
+                return new DeliveryResult(202, "errors are switched off for this project", null, false);
+            }
             var notice = Notice.FromException(exception, _config, WithTransaction(options));
+            // A hook that throws is logged and skipped: a bug in a filter
+            // must not lose the error it was filtering.
+            if (_config.BeforeNotify is { } hook)
+            {
+                try
+                {
+                    var hooked = hook(notice);
+                    if (hooked is null)
+                    {
+                        return new DeliveryResult(202, "dropped by BeforeNotify", null, false);
+                    }
+                    notice = hooked;
+                }
+                catch (Exception hookError)
+                {
+                    Log($"BeforeNotify failed: {hookError.GetType().Name}: {hookError.Message}");
+                }
+            }
             return Submit(new Delivery(NoticesUrl(), JsonSerializer.Serialize(notice)), sync);
         }
         catch (Exception ex)
@@ -84,6 +120,7 @@ public sealed class ErrorgapClient : IAsyncDisposable
         {
             _config.Validate();
             if (!_config.ApmEnabled
+                || !Remote.Enabled(RemoteKind.Apm)
                 || _config.ApmSampleRate <= 0
                 || (_config.ApmSampleRate < 1 && Random.Shared.NextDouble() >= _config.ApmSampleRate))
             {
@@ -109,7 +146,7 @@ public sealed class ErrorgapClient : IAsyncDisposable
         try
         {
             _config.Validate();
-            if (!_config.LogsEnabled) return new DeliveryResult(204, null, null, false);
+            if (!_config.LogsEnabled || !Remote.Enabled(RemoteKind.Logs)) return new DeliveryResult(204, null, null, false);
             var payload = new Dictionary<string, object?>
             {
                 ["message"] = message,
@@ -160,7 +197,8 @@ public sealed class ErrorgapClient : IAsyncDisposable
                 {
                     try
                     {
-                        await DeliverAsync(notice, _shutdownCts.Token).ConfigureAwait(false);
+                        var result = await DeliverAsync(notice, _shutdownCts.Token).ConfigureAwait(false);
+                        if (Retryable(result)) RetryLater(notice);
                     }
                     finally
                     {
@@ -172,8 +210,55 @@ public sealed class ErrorgapClient : IAsyncDisposable
         catch (OperationCanceledException) { /* shutdown */ }
     }
 
+    private const int MaxAttempts = 3;
+    private const int BacklogSize = 100;
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(30);
+    private long _pausedUntilTicks;
+    private int _backlog;
+
+    /// <summary>Whether delivery is paused at the server's request (a 429 or 503 with Retry-After).</summary>
+    public bool Paused => DateTime.UtcNow.Ticks < Interlocked.Read(ref _pausedUntilTicks);
+
+    /// <summary>
+    /// Network failures and 5xx responses are worth another try. A 4xx is
+    /// not: the server understood and refused, and after a 429 the payload is
+    /// dropped so a limited project is not sent the same burst again.
+    /// </summary>
+    public static bool Retryable(DeliveryResult result)
+    {
+        if (result.Error is RateLimitedException || result.Error is OperationCanceledException) return false;
+        if (result.Error is not null) return true;
+        return result.Status >= 500;
+    }
+
+    private void RetryLater(Delivery delivery)
+    {
+        if (delivery.Attempt >= MaxAttempts || Volatile.Read(ref _backlog) >= BacklogSize) return;
+        Interlocked.Increment(ref _backlog);
+        var again = delivery with { Attempt = delivery.Attempt + 1 };
+        _ = Task.Delay(RetryDelay * delivery.Attempt, _shutdownCts.Token).ContinueWith(task =>
+        {
+            Interlocked.Decrement(ref _backlog);
+            if (task.IsCanceled) return;
+            Interlocked.Increment(ref _inFlight);
+            if (!_channel.Writer.TryWrite(again)) Interlocked.Decrement(ref _inFlight);
+        }, TaskScheduler.Default);
+    }
+
+    private void PauseFor(System.Net.Http.Headers.RetryConditionHeaderValue? retryAfter)
+    {
+        var seconds = retryAfter?.Delta?.TotalSeconds ?? 60;
+        seconds = Math.Max(1, Math.Min(300, seconds));
+        Interlocked.Exchange(ref _pausedUntilTicks, DateTime.UtcNow.AddSeconds(seconds).Ticks);
+        Log($"rate limited, pausing delivery for {seconds}s");
+    }
+
     private DeliveryResult Submit(Delivery delivery, bool sync)
     {
+        if (_config.IgnoredEnvironment())
+        {
+            return new DeliveryResult(204, null, null, false);
+        }
         if (sync || !_config.Async)
         {
             return DeliverAsync(delivery, _shutdownCts.Token).GetAwaiter().GetResult();
@@ -189,6 +274,10 @@ public sealed class ErrorgapClient : IAsyncDisposable
 
     private async Task<DeliveryResult> DeliverAsync(Delivery delivery, CancellationToken ct)
     {
+        if (Paused)
+        {
+            return new DeliveryResult(null, null, new RateLimitedException(), false);
+        }
         using var request = new HttpRequestMessage(HttpMethod.Post, delivery.Url)
         {
             Content = new StringContent(delivery.Body, Encoding.UTF8, "application/json"),
@@ -203,6 +292,10 @@ public sealed class ErrorgapClient : IAsyncDisposable
         {
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if ((int)response.StatusCode is 429 or 503)
+            {
+                PauseFor(response.Headers.RetryAfter);
+            }
             if (!response.IsSuccessStatusCode)
             {
                 Log($"delivery failed with HTTP {(int)response.StatusCode}: {body}");
@@ -225,5 +318,5 @@ public sealed class ErrorgapClient : IAsyncDisposable
 
     private void Log(string message) => _config.DiagnosticLogger?.Invoke($"[errorgap] {message}");
 
-    private sealed record Delivery(string Url, string Body);
+    private sealed record Delivery(string Url, string Body, int Attempt = 1);
 }

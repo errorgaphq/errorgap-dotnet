@@ -71,7 +71,7 @@ public static class Notice
             ["errors"] = new List<IDictionary<string, object?>> { errorEntry },
             ["context"] = defaultContext,
             ["environment"] = options.Environment ?? new Dictionary<string, object?>(),
-            ["session"] = options.Session ?? new Dictionary<string, object?>(),
+            ["session"] = Filter.Params(options.Session, config.FilterKeys),
             ["params"] = Filter.Params(options.Params, config.FilterKeys),
         };
     }
