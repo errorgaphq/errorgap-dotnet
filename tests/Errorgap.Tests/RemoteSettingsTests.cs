@@ -23,15 +23,22 @@ public class RemoteSettingsTests
             Assert.True(client.Remote.Enabled(RemoteKind.Apm));
             Assert.Equal("errors are switched off for this project", client.Notify(new Exception("x")).Body);
             Assert.Empty(ing.Requests);
+        }
 
-            // The switch is turned back on.
-            ing.Settings = "{\"errors_enabled\":true}";
+        // A fresh client per state: the first Enabled() call starts a
+        // background read, which must not race the reads made here.
+        ing.Settings = "{\"errors_enabled\":true}";
+        await using (var client = new ErrorgapClient(config))
+        {
             Assert.True(await client.Remote.RefreshAsync());
             Assert.True(client.Notify(new Exception("y")).Success);
             Assert.Single(ing.Requests);
+        }
 
-            // Unreadable settings keep what was known.
-            ing.Settings = null;
+        // Unreadable settings leave everything on.
+        ing.Settings = null;
+        await using (var client = new ErrorgapClient(config))
+        {
             Assert.False(await client.Remote.RefreshAsync());
             Assert.True(client.Remote.Enabled(RemoteKind.Errors));
         }
