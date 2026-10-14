@@ -1,9 +1,11 @@
 # Errorgap for .NET
 
-.NET error monitoring, APM, and log collection for [Errorgap](https://errorgap.com). Two packages:
+.NET error monitoring, APM, and log collection for [Errorgap](https://errorgap.com). Four packages:
 
 - `Errorgap` — error reporting plus low-level transaction and log delivery
 - `Errorgap.AspNetCore` — ASP.NET Core middleware, APM instrumentation, and `ILogger` integration
+- `Errorgap.Serilog` — Serilog sink
+- `Errorgap.NLog` — NLog target
 
 Requires .NET 8+.
 
@@ -94,6 +96,77 @@ environment:
 logger.LogWarning("Payment gateway timeout for {OrderId}", orderId);
 ```
 
+## Serilog
+
+```sh
+dotnet add package Errorgap.Serilog
+```
+
+```csharp
+using Serilog;
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Errorgap()
+    .CreateLogger();
+```
+
+Error and Fatal events are reported as errors. `Log.Error(ex, "…")` reports
+`ex`, with the rendered message in the notice's context; an event with no
+exception is reported as a `LoggedError` carrying the message. The event's
+properties go in the notice's params, and its `SourceContext` is the component.
+Pass `notifyLevel: LogEventLevel.Warning` to report warnings too.
+
+With `LogsEnabled`, events at or above `MinimumLogLevel` are also sent to the
+project's logs. This matters when Serilog replaces the built-in logging
+(`UseSerilog()`), because the `ILogger` provider from `Errorgap.AspNetCore`
+no longer sees anything then.
+
+`WriteTo.Errorgap()` uses the client from `ErrorgapSdk.Init`. With ASP.NET
+Core's `AddErrorgap`, pass the registered client instead:
+
+```csharp
+builder.Services.AddErrorgap();
+builder.Services.AddSerilog((services, lc) => lc
+    .WriteTo.Console()
+    .WriteTo.Errorgap(services.GetRequiredService<ErrorgapClient>()));
+```
+
+## NLog
+
+```sh
+dotnet add package Errorgap.NLog
+```
+
+Register the target, then use it from `nlog.config`:
+
+```csharp
+LogManager.Setup().SetupExtensions(ext => ext.RegisterTarget<Errorgap.NLog.ErrorgapTarget>());
+```
+
+```xml
+<nlog>
+  <targets>
+    <target name="errorgap" type="Errorgap" />
+  </targets>
+  <rules>
+    <logger name="*" minlevel="Info" writeTo="errorgap" />
+  </rules>
+</nlog>
+```
+
+or, without the XML, in code:
+
+```csharp
+LogManager.Setup().LoadConfiguration(c =>
+    c.ForLogger().FilterMinLevel(NLog.LogLevel.Info).WriteTo(new ErrorgapTarget()));
+```
+
+Events behave as with Serilog: Error and Fatal are reported as errors (set
+`notifyLevel="Warn"` to include warnings), with the logger name as the
+component and the event's properties as params, and with `LogsEnabled`, events
+at or above `MinimumLogLevel` also go to the project's logs. The target uses
+the client from `ErrorgapSdk.Init`; set its `Client` property to use another.
+
 ## Plain .NET
 
 ```csharp
@@ -163,7 +236,7 @@ server's `Retry-After` (`client.Paused`).
 | `RootDirectory` | Current directory | Source lookup and app-frame classification |
 | `ApmEnabled` | `ERRORGAP_APM_ENABLED` or `false` | Automatic ASP.NET Core APM |
 | `ApmSampleRate` | `ERRORGAP_APM_SAMPLE_RATE` or `1` | Clamped to `0`–`1` |
-| `LogsEnabled` | `ERRORGAP_LOGS_ENABLED` or `false` | Enables `ILogger` delivery |
+| `LogsEnabled` | `ERRORGAP_LOGS_ENABLED` or `false` | Enables log delivery (`ILogger`, Serilog, NLog) |
 | `MinimumLogLevel` | `ERRORGAP_MINIMUM_LOG_LEVEL` or `Warning` | Case-insensitive .NET log level |
 | `DiagnosticLogger` | — | Optional callback for delivery failures |
 
